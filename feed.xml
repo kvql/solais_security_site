@@ -1,0 +1,1101 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.4.1">Jekyll</generator><link href="https://solaissecurity.com/feed.xml" rel="self" type="application/atom+xml" /><link href="https://solaissecurity.com/" rel="alternate" type="text/html" /><updated>2026-01-22T10:35:36+00:00</updated><id>https://solaissecurity.com/feed.xml</id><title type="html">Solais Security Solutions</title><subtitle>Providing pragmatic security solutions and guidance for start-ups and Small businesses.</subtitle><entry><title type="html">Commit Signing - Is it worth it?</title><link href="https://solaissecurity.com/blog/commit-signing-overview" rel="alternate" type="text/html" title="Commit Signing - Is it worth it?" /><published>2026-01-05T00:00:00+00:00</published><updated>2026-01-05T00:00:00+00:00</updated><id>https://solaissecurity.com/blog/commit-signing-overview</id><content type="html" xml:base="https://solaissecurity.com/blog/commit-signing-overview"><![CDATA[<h1 id="commit-signing---is-it-worth-it">Commit Signing - Is it worth it?</h1>
+
+<p>I started the journey of writing this thinking there would be scenarios where platform authentication would be sufficient and signing wouldn’t be worth the effort, but I was focusing on this control only from the code integrity perspective. That original assumption was correct but missed the point of signing in git. Code integrity isn’t the primary problem solved by signing, identity verification is. I just wasn’t aware just how mutable commit and author fields were by design. This is my journey of discovery into commit signing to understand when it’s pragmatic to recommend it.</p>
+
+<p>This mirrors <a href="https://dlorenc.medium.com/should-you-sign-git-commits-f068b07e1b1f">Dan Lorenc’s framing</a> - signing is “maybe” worth it, but “probably for a different reason than you think.” The reason isn’t code integrity protection, it’s author attribution.</p>
+
+<p>Why challenge this general best practice vs others? Implementing signing or any control that requires distributed change in workflow for all your engineers will be expensive/time consuming and use up your good will with those users for other changes. Therefore, I like to be sure what the benefit is and how it outweighs the cost.</p>
+
+<h2 id="the-co-location-problem">The Co-location Problem</h2>
+
+<p>This problem is why I initially came at this with the wrong perspective. Looking at below without knowing about the Impersonation problem, you would question if signing is worth the extra effort.</p>
+
+<p>My original hypothesis stems from this problem: for the most common signing implementations, the signing private key is just a secure as the auth material and hence doesn’t raise the bar for malicious activity.</p>
+
+<ul>
+  <li><strong>Typical setup</strong>: SSH keys and signing keys stored similarly
+    <ul>
+      <li><code class="language-plaintext highlighter-rouge">~/.ssh/id_ed25519</code> vs <code class="language-plaintext highlighter-rouge">~/.gnupg/</code> - same filesystem, same user permissions</li>
+      <li>An attacker with filesystem access attempts to steal both</li>
+      <li><strong>Private key on Hardware tokens can’t be stolen</strong>, but attacker can use them while on machine</li>
+    </ul>
+  </li>
+</ul>
+
+<h2 id="the-impersonation-problem">The Impersonation Problem</h2>
+
+<h3 id="the-author-field-is-trivially-spoofable">The author field is trivially spoofable</h3>
+
+<p>The <a href="https://some-natalie.dev/blog/git-identity/">fundamental disconnect between git identity and platform identity</a> means git trusts self-attestation. There’s no verification - it simply records whatever name and email are configured locally.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Spoof author on a single commit</span>
+git commit <span class="nt">-m</span> <span class="s2">"Add backdoor"</span> <span class="nt">--author</span><span class="o">=</span><span class="s2">"Linus Torvalds &lt;torvalds@linux-foundation.org&gt;"</span>
+
+<span class="c"># Or set it as default for all future commits</span>
+git config user.name <span class="s2">"Linus Torvalds"</span>
+git config user.email <span class="s2">"torvalds@linux-foundation.org"</span>
+git commit <span class="nt">-m</span> <span class="s2">"Add backdoor"</span>
+</code></pre></div></div>
+
+<p>Anyone who can push code (<strong><em>repo write access</em></strong>) can claim to be anyone in git’s author field.</p>
+
+<blockquote>
+  <p><strong><em>Enterprise Note:</em></strong><br />
+Without signing, verifying who actually made a commit requires cross-referencing platform access logs - which most developers and reviewers can’t access. Vigilant mode surfaces this in the normal workflow where people actually look.</p>
+</blockquote>
+
+<h4 id="the-vigilant-mode-solution">The vigilant mode solution</h4>
+
+<p>As mentioned, signing commits without any verification doesn’t provide much value. One platform-provided solution for this is GitHub’s Vigilant mode.</p>
+
+<ul>
+  <li>Enable in <a href="https://docs.github.com/en/authentication/managing-commit-signature-verification/displaying-verification-statuses-for-all-of-your-commits">GitHub settings</a> to show verification status on ALL your commits</li>
+  <li>Unsigned commits show as “Unverified”</li>
+  <li>Impersonation attempts become visible (spoofed commits won’t have your signature)</li>
+  <li><strong>But</strong>: Requires you to sign commits, otherwise your own commits show as unverified</li>
+</ul>
+
+<p><strong>Critical point:</strong> Signing without verification is security theatre. The value comes from <a href="https://xebia.com/blog/the-use-or-uselessness-of-signed-commits/">surfacing the “unverified” signal</a> where people actually look:</p>
+
+<ul>
+  <li><strong>Open source</strong>: Enable vigilant mode personally - your commits show verified, impersonation attempts show unverified</li>
+  <li><strong>Enterprise</strong>: Enforce signing org-wide + require vigilant mode for all users - unverified commits become visible anomalies in normal workflow</li>
+</ul>
+
+<h4 id="the-case-against-and-why-i-disagree">The case against (and why I disagree)</h4>
+
+<p>Some argue commit signing <a href="https://medium.com/@michael.vittrup.larsen/should-we-sign-git-commits-probably-not-c09ad3c18393">isn’t worth the effort</a> since account compromise still defeats it. This misses the point. Without signing, impersonation requires nothing - just set the author field. With signing <em>+ vigilant mode</em>, impersonation requires account compromise to add a malicious key.</p>
+
+<p>The bar moves from “know their email” to “compromise their account.” Account compromise is always a risk, but that’s a separate threat with separate controls.</p>
+
+<h3 id="function-of-the-different-controls">Function of the Different Controls</h3>
+
+<p>In summary the different controls perform different functions and solve different problems. Therefore, having one doesn’t make the other redundant.</p>
+
+<ul>
+  <li><strong>platform auth:</strong> pull/push (essentially read/write to hosted code)</li>
+  <li><strong>Commit Signing:</strong> commit (provides the ability to verify the stated user)
+    <ul>
+      <li><em>Important, signing isn’t a preventative control but enables verification later</em></li>
+    </ul>
+  </li>
+  <li><strong>Vigilant Mode:</strong> verification to show if the commit user isn’t valid based on signature or if the author can’t be validated (essentially any time it doesn’t match committer)</li>
+</ul>
+
+<h2 id="tldr">TL;DR</h2>
+
+<p><strong><em>Yes, commit signing is a valuable control if you care about who made a change</em></strong></p>
+
+<p>You need signed commits to be able to verify committer identity in git and the implementation doesn’t need to be complex, using the same SSH key you use for platform auth could suffice.</p>
+
+<p>Signing on its own doesn’t fix the impersonation problem, it needs to be paired with verification to highlight issues in the commit signatures or missing signatures (e.g. GitHub Vigilant mode).</p>
+
+<p><strong><em>See the image below:</em></strong> Without signing, the git log should basically just show anonymous  for all committer names/emails.</p>
+
+<p><img src="../assets/images/blog/anonymous-commits-wide.png" alt="anonymous commits" /></p>
+
+<blockquote>
+  <p><strong><em>Enterprise Note:</em></strong><br />
+Enforce signing but don’t worry about developer-level implementation details like SSH key on disk vs hardware-backed signing, unless you have serious code integrity requirements and you have implemented the other simpler controls like code review, branch protection, see rest of post.</p>
+</blockquote>
+
+<h2 id="the-baseline-what-the-hosting-platforms-already-give-you">The Baseline: What The Hosting Platforms Already Give You</h2>
+
+<p>Before progressing to looking at code integrity, I think it’s important to have some context on the wider set of controls that are relevant here. Below are the other controls outside of commit signing that are important to the topic of source code integrity in a hosted code platform like GitHub</p>
+
+<ul>
+  <li>Authentication and Authorisation to control read/write access to code repositories</li>
+  <li>Branch protection rules
+    <ul>
+      <li>e.g. enforcing pull request reviews</li>
+    </ul>
+  </li>
+  <li>Signature verification (e.g., Vigilant Mode)</li>
+  <li>Platform audit logs (who pushed what, when)</li>
+</ul>
+
+<p>All these controls rely on two trust boundaries:</p>
+
+<ul>
+  <li>The developer machine</li>
+  <li>The developer’s account within the platform’s authentication system (GitHub/GitLab infrastructure)</li>
+</ul>
+
+<p>Note: Some platform settings can strengthen the above controls making them harder to tamper with by an idividual or compromised developer account (e.g., re-authentication requirements, token expiration policies configurable in user/org settings, reusable workflows)</p>
+
+<h2 id="the-code-integrity-question">The Code Integrity Question</h2>
+
+<p>To come back to my original hypothesis: does code signing add value on top of platform auth for code integrity? The answer is more complex.</p>
+
+<blockquote>
+  <p><strong>TLDR:</strong>
+Unless you have a very high risk threat model, <strong>and</strong> have already implemented controls like branch protection, code review, etc., using commit signing for code integrity isn’t the most pragmatic choice of control.</p>
+
+  <p><em>Ignoring risk of platform compromise, e.g., GitHub servers breached. If this is in your threat model you should be thinking about independent verification regardless.</em></p>
+</blockquote>
+
+<p>With the impersonation problem covered by basic signing setups, what implementation, if any, will improve code integrity controls vs platform authentication? This is a topic covered at a high level by <a href="https://blog.palantir.com/how-palantir-secures-source-control-105c49079eae">Palantir blog</a>.</p>
+
+<p>Why basic signing isn’t enough:</p>
+
+<ul>
+  <li>If an attacker can steal your authentication material, they can steal your signing material</li>
+  <li>Without independent verification of signatures, public keys could be updated for the user</li>
+  <li>Without attestation or some control to enforce configuration of signing setup, it will drift towards the most convenient setup</li>
+</ul>
+
+<p><strong>Requirements:</strong></p>
+
+<p>Below are the requirements which would need to be met to improve code integrity guarantees via code signing. There are 3 aspects to it:</p>
+
+<ul>
+  <li>Key Material</li>
+  <li>Configuration Attestation</li>
+  <li>Independent Signature Verification</li>
+</ul>
+
+<p>The <a href="2025-11-30-yubikey-setup-commit-signing">Yubikey Setup</a> described in this post gives more specifics on meeting some of these requirements and will be used as an example. <em>This doesn’t mean other implementations aren’t acceptable if they meet the same requirements or objectives.</em></p>
+
+<h3 id="key-material">Key Material</h3>
+
+<p>The example implementation here is using a Yubikey or similar device to generate keys on device and require presence for signing operations.
+This meets the below requirements:</p>
+
+<ul>
+  <li><strong>Requirement:</strong> Unexportable private key material
+    <ul>
+      <li><strong>Objective:</strong> Ensures key material can’t be stolen and used on other unmonitored devices.</li>
+    </ul>
+  </li>
+  <li><strong>Requirement:</strong> Proof of presence (touch policy)
+    <ul>
+      <li><strong>Objective:</strong> Reduces time window when malicious activity can happen to when the user is present and performing legitimate signing actions anyway.</li>
+    </ul>
+  </li>
+</ul>
+
+<h3 id="configuration-attestation">Configuration Attestation</h3>
+
+<p>The section below on “Security Control Degradation Over Time” explains why point in time implementations can’t be relied upon. Therefore you need to ensure the control meets the same requirements after a year as it did day 1.</p>
+
+<ul>
+  <li><strong>Requirement:</strong> Signing process must provide a way to attest its configuration meets the key material requirements.
+    <ul>
+      <li><strong>Objective:</strong> At scale, across all developers you can verify the implementation aligns with your requirements continuously while verifying a commit signature or when accepting new trusted keys for a user.</li>
+    </ul>
+  </li>
+</ul>
+
+<blockquote>
+  <p><strong><em>Alternatives to hardware keys:</em></strong><br />
+This could also follow the approach of Sigstore Fulcio with OIDC integrations with Identity Providers to prove presence and identity and solve the storage problem with short-lived certificates. If you can demonstrate the restrictions on key longevity and access requirements, maybe the same objective can be met without needing hardware.</p>
+</blockquote>
+
+<p>Yubikey Example: A Yubikey signed certificate is generated on device which can be exported and used to verify the private key signing commits and its associated touch policy configuration align with your requirements. This can be validated when accepting a new trusted public key.</p>
+
+<h3 id="independent-verification">Independent Verification</h3>
+
+<p>In order to solve the risk of GitHub signed web commits, dev’s platform account compromise, configuration attestation, etc., there has to be a process to verify the commit signatures against a central trust store.</p>
+
+<ul>
+  <li><strong>Requirement:</strong> If a user’s account within the code hosting platform (e.g., GitHub) is compromised, that access can’t be used to change that user’s trusted public key (e.g., used for verification)
+    <ul>
+      <li><strong>Objective:</strong> Provide independence to remove the user’s platform account as a single point of failure</li>
+    </ul>
+  </li>
+  <li><strong>Requirement:</strong> Commit signature or trusted public key are verified to ensure they align with configuration attestation
+    <ul>
+      <li><strong>Objective:</strong> Commit signatures can’t pass verification if the way they have been signed can’t be validated</li>
+    </ul>
+  </li>
+</ul>
+
+<h3 id="threat-scenarios-by-implementation">Threat Scenarios by Implementation</h3>
+
+<p>This section will review the different controls and their effectiveness against threats to code integrity. The two tables will demonstrate the impact of “Configuration Attestation” and why it’s required.</p>
+
+<h4 id="with-configuration-attestation-ideal-state">With Configuration Attestation (Ideal State)</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: left">Threat Scenario</th>
+      <th style="text-align: left">Platform Auth</th>
+      <th style="text-align: left">Software Signing</th>
+      <th style="text-align: left">Platform Signature Verification (vigilant mode)</th>
+      <th style="text-align: left">“Hardware” Signing**</th>
+      <th style="text-align: left">Independent signature Verification</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: left">Author impersonation</td>
+      <td style="text-align: left">🚫 commit and author spoofable</td>
+      <td style="text-align: left">✅ shows unverified</td>
+      <td style="text-align: left">✅  shows unsigned</td>
+      <td style="text-align: left">✅ Vigilant mode shows unsigned</td>
+      <td style="text-align: left">✅ Verification fails</td>
+    </tr>
+    <tr>
+      <td style="text-align: left">Stolen GitHub token/session (push web commit)</td>
+      <td style="text-align: left">🚫 Already compromised</td>
+      <td style="text-align: left">🚫 Web commits signed by GitHub</td>
+      <td style="text-align: left">🚫 Web commits signed by GitHub</td>
+      <td style="text-align: left">🚫 Web commits signed by GitHub</td>
+      <td style="text-align: left">✅ Production changes blocked</td>
+    </tr>
+    <tr>
+      <td style="text-align: left">Platform or Platform admin compromise</td>
+      <td style="text-align: left">🚫 Relies on platform controls</td>
+      <td style="text-align: left">🚫 Relies on platform controls</td>
+      <td style="text-align: left">🚫 Relies on platform controls</td>
+      <td style="text-align: left">🚫 Relies on platform controls</td>
+      <td style="text-align: left">✅ prevents single point of failure</td>
+    </tr>
+    <tr>
+      <td style="text-align: left">Compromised developer machine (key material stolen)</td>
+      <td style="text-align: left">🚫 Auth material stolen</td>
+      <td style="text-align: left">🚫 Signing key also stolen</td>
+      <td style="text-align: left">🚫 Relies on secure signing key</td>
+      <td style="text-align: left">✅ can’t be extracted from hardware token, Attacker forced to stay on device</td>
+      <td style="text-align: left">N/A</td>
+    </tr>
+    <tr>
+      <td style="text-align: left">Compromised developer machine (code injected to legitimate commit)</td>
+      <td style="text-align: left">🚫 Auth material stolen</td>
+      <td style="text-align: left">🚫 Signing key also stolen</td>
+      <td style="text-align: left">🚫 Relies on secure signing key</td>
+      <td style="text-align: left">⚠️ Attacker forced to stay on device (no prevention, increased chance of detection)</td>
+      <td style="text-align: left">🚫 Verification will pass as code signed along with legitimate commit</td>
+    </tr>
+  </tbody>
+</table>
+
+<blockquote>
+  <p><strong><em>There are No Perfect Controls:</em></strong><br />
+As you can see in both tables, even with the ideal setup, there are still attack vectors to sign a malicious commit. However, if paired with strong endpoint monitoring or controls like code review, these controls significantly improve your chance of detecting a malicious action. This is discussed more in <a href="https://blog.palantir.com/how-palantir-secures-source-control-105c49079eae">Palantir blog</a>.</p>
+</blockquote>
+
+<h4 id="without-configuration-attestation-reality-over-time">Without Configuration Attestation (Reality Over Time)</h4>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: left">Threat Scenario</th>
+      <th style="text-align: left">Platform Auth</th>
+      <th style="text-align: left">Software Signing</th>
+      <th style="text-align: left">Platform Signature Verification (vigilant mode)</th>
+      <th style="text-align: left">“Hardware” Signing**</th>
+      <th style="text-align: left">Independent signature Verification</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: left">Compromised developer machine (key material stolen)</td>
+      <td style="text-align: left">🚫 Auth material stolen</td>
+      <td style="text-align: left">🚫 Signing key also stolen</td>
+      <td style="text-align: left">🚫 Relies on secure signing key</td>
+      <td style="text-align: left">🚫 control drift, Likely accessible</td>
+      <td style="text-align: left">N/A</td>
+    </tr>
+    <tr>
+      <td style="text-align: left">Compromised developer machine (code injected to legitimate commit)</td>
+      <td style="text-align: left">🚫 Auth material stolen</td>
+      <td style="text-align: left">🚫 Signing key also stolen</td>
+      <td style="text-align: left">🚫 Relies on secure signing key</td>
+      <td style="text-align: left">🚫 control drift, Likely accessible</td>
+      <td style="text-align: left">🚫 Verification will pass as code signed along with legitimate commit</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="control-drift---common-most-convenient-setup-shortcuts">Control Drift - Common “most convenient setup” shortcuts</h4>
+
+<ul>
+  <li>Generating keys on laptop then importing to hardware token (defeats the purpose)</li>
+  <li>Backing up hardware-generated keys to disk “just in case”</li>
+  <li>Not enforcing touch policy</li>
+  <li>Exporting keys to multiple tokens without proper key ceremonies</li>
+</ul>
+
+<p><strong>The gap</strong>: The difference between “Ideal State” and “Reality Over Time” is entirely about enforcement. Without technical controls that verify proper setup and perform external verification, you get degraded behavior over time.</p>
+
+<h3 id="why-hardware-signing-helps-when-done-right">Why Hardware Signing Helps (When Done Right)</h3>
+
+<ul>
+  <li><strong>Forces attacker persistence</strong>: Can’t exfiltrate key, must stay on machine to sign</li>
+  <li><strong>Increases detection window</strong>: More time for monitoring/EDR to catch malicious activity</li>
+  <li><strong>Touch policy adds friction</strong>: Even cached-fixed requires periodic physical access and forces the attacker to time changes with legitimate activity, again increasing detection window.</li>
+  <li><strong>But</strong>: Only works if you can continuously verify keys were generated on-device and remain properly configured (attestation + ongoing verification)</li>
+</ul>
+
+<h2 id="security-control-degradation-over-time">Security Control Degradation Over Time</h2>
+
+<h3 id="initial-rollout-month-1-3">Initial rollout (Month 1-3)</h3>
+
+<ul>
+  <li>Engineers follow secure setup procedures</li>
+  <li>Hardware tokens properly configured</li>
+  <li>Keys generated on-device, touch policies set</li>
+  <li>High compliance with security guidance</li>
+</ul>
+
+<h3 id="reality-after-6-12-months">Reality after 6-12 months</h3>
+
+<ul>
+  <li>New laptop setup → “I’ll just import my backup key this once”</li>
+  <li>Lost/forgotten hardware token → “I’ll generate a new key on disk temporarily”</li>
+  <li>Frustration with touch policy during rebases → switched to longer cache or disabled</li>
+  <li>New team members follow examples from existing codebases/wikis that show convenient patterns</li>
+  <li><strong>Critical mass shift</strong>: Once enough engineers use convenient workarounds, it becomes the de facto standard</li>
+</ul>
+
+<h3 id="why-this-happens-not-a-criticism">Why this happens (not a criticism)</h3>
+
+<ul>
+  <li>Legitimate friction accumulates: lost tokens, laptop replacements, travel without token</li>
+  <li>No immediate feedback when taking shortcuts (signing still works)</li>
+  <li>Peer examples normalize workarounds (“everyone does it this way”)</li>
+  <li>Toil builds up over hundreds of commits per month</li>
+  <li>Security team isn’t notified when engineers modify their setup</li>
+</ul>
+
+<h3 id="the-enforcement-gap">The enforcement gap</h3>
+
+<ul>
+  <li>Without technical controls that verify proper setup (e.g. attestation), you have <strong>no visibility</strong> into this drift</li>
+  <li>“Ideal State” → “Reality Over Time” transition happens silently</li>
+  <li>By the time the security value has degraded, the implementation cost has already been paid</li>
+</ul>
+
+<p>This is why the “Configuration Attestation” requirement is so key to ensure the investment in independent verification and hardware keys stays valuable long term.</p>
+
+<h2 id="conclusion">Conclusion</h2>
+
+<p><strong>The misconception</strong>: Commit signing prevents malicious code from reaching production.</p>
+
+<p><strong>The reality</strong>: Signing solves identity, not integrity. Git’s author field is trivially spoofable; signing is the only way to verify who actually made a commit.</p>
+
+<p><strong>Practical recommendations:</strong></p>
+
+<ul>
+  <li><strong>For most teams</strong>: Enable signing with your existing SSH key + vigilant mode. If on-disk SSH keys are acceptable for authentication, they’re acceptable for signing. This solves impersonation.</li>
+  <li><strong>For code integrity</strong>: Hardware keys alone don’t get you much <strong>at scale</strong>. You need the full stack: hardware-backed keys + configuration attestation + independent signature verification. Without attestation, implementations drift toward convenience and you’re back to software signing within a year. Accept this operational overhead only if you’ve already implemented code review and branch protection, and have genuine supply chain concerns.</li>
+</ul>
+
+<p>Don’t let perfect be the enemy of good. Basic signing with vigilant mode is a significant improvement over platform auth alone, where anyone with push access can claim to be anyone.</p>
+
+<blockquote>
+  <p><strong><em>Future direction:</em></strong><br />
+The <a href="https://some-natalie.dev/blog/git-identity/">fundamental identity gap in git</a> won’t be solved by hardware tokens alone. OIDC-based signing (like Sigstore’s Fulcio) ties short-lived certificates to your identity provider, eliminating long-lived key management entirely. The requirement that doesn’t change: enforcement and verification.</p>
+</blockquote>]]></content><author><name></name></author><category term="post" /><category term="security-engineering" /><category term="supply-chain-security" /><category term="explanation" /><category term="code-signing" /><summary type="html"><![CDATA[Deep dive into why commit signing is worth it, even when hosted platforms like GitHub have strong authentication controls.]]></summary></entry><entry><title type="html">Setting Up Git Commit Signing with Multiple YubiKeys</title><link href="https://solaissecurity.com/blog/yubikey-setup-commit-signing" rel="alternate" type="text/html" title="Setting Up Git Commit Signing with Multiple YubiKeys" /><published>2025-11-30T00:00:00+00:00</published><updated>2025-11-30T00:00:00+00:00</updated><id>https://solaissecurity.com/blog/yubikey-setup-commit-signing</id><content type="html" xml:base="https://solaissecurity.com/blog/yubikey-setup-commit-signing"><![CDATA[<h1 id="setting-up-git-commit-signing-with-multiple-yubikeys">Setting Up Git Commit Signing with Multiple YubiKeys</h1>
+
+<p>This guide demonstrates how to set up git commit signing using multiple YubiKeys. It covers the complete workflow from initial setup through attestation, addressing gaps in existing documentation around multiple signing subkeys and attestation for code signing.</p>
+
+<h2 id="what-youll-build">What You’ll Build</h2>
+
+<p>By the end of this guide, you’ll have:</p>
+
+<ul>
+  <li>Multiple Yubikeys configured for git commit signing with a primary key and device-specific subkeys</li>
+  <li>A bash function to simplify switching between different Yubikeys</li>
+  <li>Touch policy enforcement requiring physical key tap for each signing operation</li>
+  <li>Properly configured git to sign commits with the currently inserted key</li>
+  <li>Optional: Cryptographic attestation proving keys were generated on hardware and enforce touch policy</li>
+</ul>
+
+<h2 id="motivation">Motivation</h2>
+
+<p>Coming at this from the perspective of publishing open-source tooling and having been a user of open source tooling for critical production use cases. I wanted to give users with high-risk threat models the best option for validating my signing practices and code integrity.</p>
+
+<blockquote>
+  <p><strong>Multiple YubiKeys</strong><br />
+Having multiple YubiKeys in different form factors, I couldn’t guarantee I would always have the same key at hand. Therefore I wanted a seamless way to sign code with different keys without impacting the ability for users of my code to verify it. The developer experience for me is also a primary requirement alongside security and whatever the setup looks like it shouldn’t make the process any more inconvenient for me than using a single YubiKey.</p>
+</blockquote>
+
+<h2 id="technology-used">Technology Used</h2>
+
+<ul>
+  <li>macOS Tahoe</li>
+  <li>Yubikey 5 (multiple form factors)`</li>
+  <li>Github</li>
+</ul>
+
+<h2 id="prerequisites">Prerequisites</h2>
+
+<p>Before starting, ensure you have the following tools installed:</p>
+
+<blockquote>
+  <p>Below is an example install of required tooling, but isn’t a comprehensive guide across platforms as that is well covered in information online.</p>
+</blockquote>
+
+<p><strong>Required Tools:</strong></p>
+
+<ul>
+  <li><strong>GnuPG (gpg)</strong></li>
+  <li><strong>pinentry-mac</strong></li>
+  <li><strong>YubiKey Manager (ykman)</strong> - Latest version recommended</li>
+  <li>One or more Yubikey devices</li>
+</ul>
+
+<p><strong>Installation (macOS):</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Install via Homebrew</span>
+brew <span class="nb">install </span>gnupg ykman pinentry-mac
+
+<span class="c"># Verify installation</span>
+gpg <span class="nt">--version</span>
+ykman <span class="nt">--version</span>
+
+<span class="c"># Setup Pinentry</span>
+<span class="nb">echo</span> <span class="s2">"pinentry-program </span><span class="si">$(</span>brew <span class="nt">--prefix</span><span class="si">)</span><span class="s2">/bin/pinentry-mac"</span> <span class="o">&gt;</span> ~/.gnupg/gpg-agent.conf    
+
+</code></pre></div></div>
+
+<p><strong>Other Platforms:</strong> See <a href="https://gnupg.org/download/">GnuPG Downloads</a> and <a href="https://www.yubico.com/support/download/yubikey-manager/">YubiKey Manager Installation</a></p>
+
+<h2 id="process-overview">Process Overview</h2>
+
+<p>This guide follows a structured workflow:</p>
+
+<ol>
+  <li><strong>Yubikey Initial Setup</strong> - Configure security settings, PINs, and key attributes on your first Yubikey</li>
+  <li><strong>Key Generation</strong> - Create the primary key and signing subkeys
+    <ul>
+      <li>Generate primary key</li>
+      <li>Set up additional Yubikeys with their own signing subkeys</li>
+    </ul>
+  </li>
+  <li><strong>Touch Policy Configuration</strong> - Require physical touch for signing operations</li>
+  <li><strong>Git Integration</strong> - Configure git to use your Yubikey for commit signing</li>
+  <li><strong>Testing Your Setup</strong> - Verify everything works correctly</li>
+  <li><strong>Verifying Signatures</strong> - Learn how others can verify your signed commits</li>
+  <li><strong>[Optional] Attestation</strong> - Generate cryptographic proof of hardware key generation</li>
+</ol>
+
+<h2 id="part-1-yubikey-initial-setup">Part 1: Yubikey Initial Setup</h2>
+
+<p>First time setups tasks based on this <a href="https://github.com/YubicoLabs/sign-git-commits-yubikey">Yubico Guide</a> and a <a href="https://www.procustodibus.com/blog/2023/04/how-to-set-up-a-yubikey/">blog</a> which I found particularly comprehensive. <strong><em>Before following these steps, see the mentioned guides on installing tooling.</em></strong></p>
+
+<ol>
+  <li>Set Fido pin (unrelated to signing but useful)</li>
+  <li>Set lock-code to prevent the yubikey being wiped</li>
+  <li>Change pgp pin and admin pin (no need to set reset code, this is for when use doesn’t know admin pin e.g. set by IT)</li>
+  <li>Set key attributes (ecc and curve 25519)</li>
+  <li>Set retry limits: <code class="language-plaintext highlighter-rouge">ykman openpgp access set-retries 9 9 9</code></li>
+</ol>
+
+<blockquote>
+  <p><strong>Compatibility issue:</strong><br />
+The Yubico Labs guide mentions using RSA4096 however that isn’t supported on firmware &lt; 5.7.0</p>
+</blockquote>
+
+<p>General list of commands but see the linked guides for more detail if unfamiliar with PGP and Yubikey manager</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="c"># Set Fido pin</span>
+ykman fido access change-pin
+
+<span class="c"># password protect the yubikey config. Remember to save this code or your yubikey may become useless</span>
+ykman config set-lock-code <span class="nt">--generate</span>
+
+<span class="c"># Pins can be set with with gpg or ykman apps</span>
+<span class="c"># Pin defaults: </span>
+gpg <span class="nt">--card-edit</span>
+admin
+passwd
+
+<span class="c"># see output for instructions</span>
+ykman openpgp access <span class="nt">-h</span>
+
+<span class="c"># Set lockout counts</span>
+ykman openpgp access set-retries 9 9 9 
+
+<span class="c"># Set default key attributes (cipher and length/algorithm)</span>
+gpg <span class="nt">--card-edit</span> <span class="c">#starts interactive prompt</span>
+admin
+key-attr
+<span class="c">#... selection</span>
+quit
+</code></pre></div></div>
+
+<blockquote>
+  <p><strong>Pin Recommendations:</strong><br />
+Pin can be 8 to 127 chars, passphrase is best practice. Due to low retry limits complexity doesn’t need to be as high as online passwords</p>
+</blockquote>
+
+<h3 id="verifying-your-setup">Verifying Your Setup</h3>
+
+<p>After completing the initial setup, verify your Yubikey is properly configured:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Check Yubikey is detected and OpenPGP app is accessible</span>
+gpg <span class="nt">--card-status</span>
+
+<span class="c"># Expected output should show:</span>
+<span class="c"># - PIN retry counters (should show 9 9 9 if you set them)</span>
+<span class="c"># - Key attributes showing your chosen algorithm (e.g., ed25519)</span>
+</code></pre></div></div>
+
+<p><strong>What to look for:</strong></p>
+
+<ul>
+  <li>Reader status shows your Yubikey serial number</li>
+  <li>PIN retry counter shows your configured values (9 9 9)</li>
+  <li>Key attributes match what you set (ECC, Curve 25519)</li>
+</ul>
+
+<p>If <code class="language-plaintext highlighter-rouge">gpg --card-status</code> fails or shows unexpected values, review the setup steps before proceeding to key generation.</p>
+
+<h2 id="part-2-key-generation">Part 2: Key Generation</h2>
+
+<h3 id="primary-key">Primary Key</h3>
+
+<p>In OpenPGP, keys have specific capabilities: <strong>[C]</strong>ertify (primary key), <strong>[S]</strong>ign, <strong>[E]</strong>ncrypt, and <strong>[A]</strong>uthenticate. For commit signing, you’ll create a primary key with certify capability and one or more signing subkeys with the sign capability.</p>
+
+<p>The <a href="https://github.com/YubicoLabs/sign-git-commits-yubikey">Yubico Guide</a> can be followed for this step.</p>
+
+<blockquote>
+  <p><strong>Primary Yubikey</strong>
+With PGP the primary certifying key is higher risk as it can certify other subkeys, therefore while it’s call the primary key, it shouldn’t be on your “primary yubikey” that you intend to use daily. Keep it on a backup YubiKey.</p>
+</blockquote>
+
+<p><strong>Commands overview:</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gpg <span class="nt">--card-edit</span>
+admin
+generate
+<span class="c"># follow prompts and see notes below</span>
+
+<span class="c">#exit gpg interactive prompt</span>
+quit
+
+<span class="c"># View new key</span>
+gpg <span class="nt">--list-secret-keys</span> <span class="nt">--keyid-format</span><span class="o">=</span>long
+</code></pre></div></div>
+
+<p><strong>Notes:</strong></p>
+
+<ul>
+  <li><strong>[User ID Properties]</strong> Think about privacy when it comes to real name and email fields, the public key is public when uploaded to Github (<a href="https://github.com/username.gpg">https://github.com/username.gpg</a>). e.g utilise <a href="https://docs.github.com/en/authentication/managing-commit-signature-verification/generating-a-new-gpg-key#generating-a-gpg-key">Github no-reply email</a></li>
+  <li><strong>[Private key export]</strong> The private key for the master key can be exported (subkeys cannot be exported), for purely signing use cases, I don’t believe it is worth the security overhead of securing backup key. Worst case you will need to regenerate the keys and publish a new key but that is no worse than most current best practice that recommends utilising ssh based signing.</li>
+  <li><strong>[Public key]</strong> The public key isn’t stored on the yubikey with the primary secret key, therefore you should export and backup the public key after any key changes.
+    <ul>
+      <li>Importing the public key to gpg agent is required to perform any key modifications or use the keys for signing (e.g on a new laptop)</li>
+    </ul>
+  </li>
+</ul>
+
+<h3 id="setting-up-secondary-yubikeys">Setting Up Secondary Yubikeys</h3>
+
+<p>Once your primary key is configured, you can generate subkeys on additional Yubikeys for daily use and to provide redundancy.</p>
+
+<p><strong>Process for each additional Yubikey:</strong></p>
+
+<ol>
+  <li>
+    <p>Complete Part 1 (Initial Setup) on the new Yubikey - set PINs, lock code, and key attributes</p>
+  </li>
+  <li>
+    <p>Insert the new Yubikey and generate a new signing subkey linked to your primary key:</p>
+
+    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># (Should already be there unless on new device)Import your public key</span>
+gpg <span class="nt">--import</span> /path/to/your/public-key.asc
+
+<span class="c"># Edit the key to add a new signing subkey</span>
+gpg <span class="nt">--edit-key</span> YOUR_KEY_ID
+<span class="c"># At the gpg&gt; prompt:</span>
+addcardkey
+<span class="c"># Select (1) Signature key</span>
+<span class="c"># Follow prompts to generate the subkey on the new Yubikey</span>
+save
+</code></pre></div>    </div>
+  </li>
+  <li>
+    <p>Export and backup your updated public key:</p>
+
+    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gpg <span class="nt">--armor</span> <span class="nt">--export</span> YOUR_KEY_ID <span class="o">&gt;</span> updated-public-key.asc
+</code></pre></div>    </div>
+  </li>
+  <li>
+    <p>Upload the updated public key to GitHub or your key server</p>
+  </li>
+  <li>
+    <p>Set the touch policy on the new subkey (see Part 3)</p>
+  </li>
+</ol>
+
+<p><strong>Important:</strong> Each Yubikey will have its own unique signing subkey, but all are certified by the same primary key. This means users only need to import your public key once to verify signatures from any of your Yubikeys.</p>
+
+<h2 id="part-3-setting-the-touch-policy">Part 3: Setting the Touch Policy</h2>
+
+<p>Following generation of the keys, you need to set the touch policy for the key so as it needs to be touched to complete a signing request.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ykman openpgp keys set-touch sig cached-fixed
+</code></pre></div></div>
+
+<blockquote>
+  <p><strong>Touch Policy Choice</strong>
+I believe the cached-fixed policy offers most pragmatic choice as it limits the exposure window but doesn’t prevent you from performing actions like rebases which otherwise would require constant tapping of the key.</p>
+</blockquote>
+
+<p><strong>Verifying Touch Policy:</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Check current touch policy settings</span>
+ykman openpgp info
+
+<span class="c"># Look for "Touch policy" under signature key section</span>
+<span class="c"># Should show: sig cached-fixed</span>
+</code></pre></div></div>
+
+<p>You can also test this works by attempting a test signature - you should need to touch the key to complete the operation.</p>
+
+<h2 id="part-4-git-integration">Part 4: Git Integration</h2>
+
+<p>Git will select the newest signing key in the public key, it does not have any logic to detect which Yubikey is available. For multiple Yubikeys, you have two approaches:</p>
+
+<h3 id="option-1-manual-configuration">Option 1: Manual Configuration</h3>
+
+<p>Manually specify which subkey to use by appending <code class="language-plaintext highlighter-rouge">!</code> to the key ID:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Get your subkey IDs</span>
+gpg <span class="nt">--list-keys</span> <span class="nt">--keyid-format</span><span class="o">=</span>long
+
+<span class="c"># Configure git to use a specific subkey (use the subkey ID, not the primary key)</span>
+git config <span class="nt">--global</span> user.signingKey C5CA48564B2395E5!
+</code></pre></div></div>
+
+<p>You’ll need to run this command each time you switch Yubikeys.</p>
+
+<h3 id="option-2-automated-key-switching-recommended">Option 2: Automated Key Switching (Recommended)</h3>
+
+<p>Use this bash function to automatically detect and configure the correct subkey:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>yk-git-key<span class="o">()</span> <span class="o">{</span>
+    <span class="nb">echo</span> <span class="s2">"YubiKeys detected:"</span>
+    <span class="nb">local </span>ykman_output
+    <span class="nv">ykman_output</span><span class="o">=</span><span class="si">$(</span>ykman list 2&gt;&amp;1<span class="si">)</span>
+    <span class="nb">echo</span> <span class="s2">"</span><span class="nv">$ykman_output</span><span class="s2">"</span>
+
+    <span class="k">if</span> <span class="o">[[</span> <span class="nt">-z</span> <span class="s2">"</span><span class="nv">$ykman_output</span><span class="s2">"</span> <span class="o">]]</span><span class="p">;</span> <span class="k">then
+        </span><span class="nb">echo</span> <span class="s2">"---"</span>
+        <span class="nb">echo</span> <span class="s2">"ERROR: No YubiKey detected"</span> <span class="o">&gt;</span>&amp;2
+        <span class="k">return </span>1
+    <span class="k">fi
+    </span><span class="nb">echo</span> <span class="s2">"---"</span>
+
+    <span class="c"># Get Application ID</span>
+    <span class="nb">local </span>AppID
+    <span class="nv">AppID</span><span class="o">=</span><span class="si">$(</span>gpg <span class="nt">--card-status</span> 2&gt;/dev/null | <span class="nb">grep</span> <span class="s2">"Application ID"</span> | <span class="nb">awk</span> <span class="s1">'{print $4}'</span> | <span class="nb">tr</span> <span class="nt">-d</span> <span class="s1">'\n\r'</span><span class="si">)</span>
+
+    <span class="k">if</span> <span class="o">[[</span> <span class="nt">-z</span> <span class="s2">"</span><span class="nv">$AppID</span><span class="s2">"</span> <span class="o">]]</span><span class="p">;</span> <span class="k">then
+        </span><span class="nb">echo</span> <span class="s2">"ERROR: No YubiKey detected or OpenPGP app not configured"</span> <span class="o">&gt;</span>&amp;2
+        <span class="nb">echo</span> <span class="s2">"Try: gpg --card-status"</span> <span class="o">&gt;</span>&amp;2
+        <span class="k">return </span>1
+    <span class="k">fi
+    </span><span class="nb">echo</span> <span class="s2">"Device AppID: </span><span class="nv">$AppID</span><span class="s2">"</span>
+
+    <span class="c"># Validate AppID format</span>
+    <span class="k">if</span> <span class="o">[[</span> <span class="o">!</span> <span class="nv">$AppID</span> <span class="o">=</span>~ ^D[A-F0-9]<span class="o">{</span>31<span class="o">}</span><span class="nv">$ </span><span class="o">]]</span><span class="p">;</span> <span class="k">then
+        </span><span class="nb">echo</span> <span class="s2">"ERROR: Invalid Application ID format: </span><span class="nv">$AppID</span><span class="s2">"</span> <span class="o">&gt;</span>&amp;2
+        <span class="k">return </span>1
+    <span class="k">fi</span>
+
+    <span class="c"># Find matching signing key</span>
+    <span class="nb">local </span>KeyID
+    <span class="nv">KeyID</span><span class="o">=</span><span class="si">$(</span>gpg <span class="nt">--list-secret-keys</span> <span class="nt">--with-colons</span> | <span class="nb">grep</span> <span class="s2">"</span><span class="nv">$AppID</span><span class="s2">"</span> | <span class="nb">awk</span> <span class="nt">-F</span><span class="s1">':'</span> <span class="s1">'{print $5}'</span> | <span class="nb">tr</span> <span class="nt">-d</span> <span class="s1">'\n\r'</span><span class="si">)</span>
+
+    <span class="k">if</span> <span class="o">[[</span> <span class="nt">-z</span> <span class="s2">"</span><span class="nv">$KeyID</span><span class="s2">"</span> <span class="o">]]</span><span class="p">;</span> <span class="k">then
+        </span><span class="nb">echo</span> <span class="s2">"ERROR: No signing subkey found for this YubiKey"</span> <span class="o">&gt;</span>&amp;2
+        <span class="nb">echo</span> <span class="s2">"Ensure public key is imported: gpg --import public-key.asc"</span> <span class="o">&gt;</span>&amp;2
+        <span class="k">return </span>1
+    <span class="k">fi
+    </span><span class="nb">echo</span> <span class="s2">"Signing Key ID: </span><span class="nv">$KeyID</span><span class="s2">"</span>
+
+    <span class="c"># Validate KeyID format</span>
+    <span class="k">if</span> <span class="o">[[</span> <span class="o">!</span> <span class="nv">$KeyID</span> <span class="o">=</span>~ ^[A-F0-9]<span class="o">{</span>16<span class="o">}</span><span class="nv">$ </span><span class="o">]]</span><span class="p">;</span> <span class="k">then
+        </span><span class="nb">echo</span> <span class="s2">"ERROR: Invalid Key ID format: </span><span class="nv">$KeyID</span><span class="s2">"</span> <span class="o">&gt;</span>&amp;2
+        <span class="k">return </span>1
+    <span class="k">fi</span>
+
+    <span class="c"># Configure git</span>
+    <span class="k">if</span> <span class="o">!</span> git config <span class="nt">--global</span> user.signingKey <span class="s2">"</span><span class="nv">$KeyID</span><span class="s2">!"</span><span class="p">;</span> <span class="k">then
+        </span><span class="nb">echo</span> <span class="s2">"ERROR: Failed to configure git signing key"</span> <span class="o">&gt;</span>&amp;2
+        <span class="k">return </span>1
+    <span class="k">fi
+
+    </span><span class="nb">echo</span> <span class="s2">"SUCCESS: Git configured to sign with key </span><span class="nv">$KeyID</span><span class="s2">"</span>
+<span class="o">}</span>
+</code></pre></div></div>
+
+<p><strong>Usage:</strong> Add this function to your <code class="language-plaintext highlighter-rouge">.bashrc</code> or <code class="language-plaintext highlighter-rouge">.zshrc</code>, then run <code class="language-plaintext highlighter-rouge">yk-git-key</code> whenever you switch Yubikeys.</p>
+
+<blockquote>
+  <p><strong>Note:</strong> This function will need updating if you have encryption or authentication keys on the Yubikey</p>
+</blockquote>
+
+<h2 id="part-5-testing-your-setup">Part 5: Testing Your Setup</h2>
+
+<p>Before relying on your Yubikey for commit signing, verify the complete workflow.</p>
+
+<p><strong>Create a test signed commit:</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Enable commit signing globally (if not already set)</span>
+git config <span class="nt">--global</span> commit.gpgSign <span class="nb">true</span>
+
+<span class="c"># Create a test repository or use existing one</span>
+<span class="nb">cd</span> /path/to/test-repo
+
+<span class="c"># Make a test commit</span>
+git commit <span class="nt">--allow-empty</span> <span class="nt">-S</span> <span class="nt">-m</span> <span class="s2">"Test commit signing with Yubikey"</span>
+
+<span class="c"># You should be prompted to touch your Yubikey</span>
+</code></pre></div></div>
+
+<p><strong>Verify the signature:</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Show the signature in git log</span>
+git log <span class="nt">--show-signature</span> <span class="nt">-1</span>
+
+<span class="c"># Expected output should show:</span>
+<span class="c"># - "Good signature from &lt;your email&gt;"</span>
+<span class="c"># - Your key ID</span>
+<span class="c"># - Signature details</span>
+</code></pre></div></div>
+
+<p><strong>Test key switching (if you have multiple Yubikeys):</strong></p>
+
+<ol>
+  <li>Use the <code class="language-plaintext highlighter-rouge">yk-git-key</code> function to switch to a different Yubikey</li>
+  <li>Make another test commit</li>
+  <li>Verify the signature shows the different subkey ID</li>
+</ol>
+
+<p><strong>Troubleshooting:</strong></p>
+
+<ul>
+  <li>If you don’t get a touch prompt, verify your touch policy with <code class="language-plaintext highlighter-rouge">ykman openpgp info</code></li>
+  <li>If git can’t find the key, ensure <code class="language-plaintext highlighter-rouge">gpg --card-status</code> shows your Yubikey</li>
+  <li>If signature fails, check <code class="language-plaintext highlighter-rouge">git config --global user.signingKey</code> matches your current key</li>
+</ul>
+
+<h2 id="part-6-verifying-signatures">Part 6: Verifying Signatures</h2>
+
+<p>To verify GPG signatures you need to import the commiter’s public key.</p>
+
+<p>Github example:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">#Just show public key details</span>
+curl https://github.com/kvql.gpg | gpg <span class="nt">--show-keys</span>
+
+curl https://github.com/kvql.gpg | gpg <span class="nt">--import</span>
+
+<span class="c"># Show signatures in git log</span>
+git log <span class="nt">--show-signature</span>
+
+<span class="c"># Verify a specific commit</span>
+git verify-commit &lt;commit <span class="nb">id</span><span class="o">&gt;</span>
+</code></pre></div></div>
+
+<blockquote>
+  <p><strong>Note:</strong> This github export limits the overhead for users/teammates to import your keys even if you have multiple independent primary signing keys.</p>
+</blockquote>
+
+<h2 id="part-7-yubikey-attestation-for-gpg-key">Part 7: Yubikey Attestation for GPG key</h2>
+
+<p><strong>This section is optional</strong> and intended for high-security environments or those wanting to provide cryptographic proof that keys were generated on a hardware device.</p>
+
+<p>Attestation allows you to prove that your signing key was generated directly on a Yubikey and is subject to its touch policy. This provides additional assurance for users with strict threat models. For most use cases, the standard commit signing configured above is sufficient.</p>
+
+<p>As mentioned in this <a href="https://blog.palantir.com/how-palantir-secures-source-control-105c49079eae">Palantir blog</a>, attestation can be used to verify touch policy enforcement, adding an extra layer of validation beyond standard GPG signature verification.</p>
+
+<p>Yubico documentation on the attestation contents and meaning: <a href="https://developers.yubico.com/PGP/Attestation.html">https://developers.yubico.com/PGP/Attestation.html</a></p>
+
+<p>Reading the attestation data:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">ykSerial</span><span class="o">=</span><span class="si">$(</span>ykman info | <span class="nb">awk</span> <span class="s1">'/Serial number:/ {print $3}'</span><span class="si">)</span>
+<span class="c"># generate and export attestation certificate</span>
+<span class="c"># attest command has a question prompt if a cert already exists and </span>
+<span class="c"># therefore you can't always pipe directly from that.</span>
+ykman openpgp keys attest sig -
+ykman openpgp certificates <span class="nb">export </span>sig - <span class="o">&gt;</span> sig-attest-<span class="nv">$ykSerial</span>.pem
+
+<span class="c"># parse the attestation data</span>
+openssl asn1parse <span class="nt">-in</span> sig-attest.pem <span class="nt">-i</span> 
+
+<span class="c"># first 4 char are der encoding </span>
+<span class="c"># specific value use above command to get string num e.g </span>
+<span class="c"># 251:d=5  hl=2 l=  10 prim:      OBJECT            :1.3.6.1.4.1.41482.5.8</span>
+<span class="c"># 263:d=5  hl=2 l=   3 prim:      OCTET STRING      [HEX DUMP]:040103</span>
+openssl asn1parse <span class="nt">-in</span> sig-attest.pem <span class="nt">-i</span> <span class="nt">-strparse</span> 263
+</code></pre></div></div>
+
+<blockquote>
+  <p><strong>Note:</strong> Verifying the attestation signature against yubico public key and the attestation values is a key next step and will be covered in a later post</p>
+</blockquote>
+
+<h2 id="summary">Summary</h2>
+
+<p>This guide covers git commit signing from a slightly new perspective with multiple Yubikey and on device generated secret keys for future attestation.</p>
+
+<p>Next steps is to cover the threat model on what values does commit signing bring from the developer, open-source consumer and enterprise perspective. A key area which is often incorrectly represented online is how not all siging implementations are equal and the more basic implemenations mitigate minimal risks vs the platform authentication.</p>
+
+<p>Implementing a reusable workflow for attesting the signing key during PRs is also key to getting the value from the attestation certificate consistently and at scale.</p>]]></content><author><name></name></author><category term="post" /><category term="security-engineering" /><category term="yubikey" /><category term="pgp" /><category term="supply-chain-security" /><category term="git" /><category term="how-to-guide" /><category term="code signing" /><summary type="html"><![CDATA[Guide on how to set up git commit signing with multiple YubiKeys, including hardware attestation to prove keys were generated on-device with specific touch policy.]]></summary></entry><entry><title type="html">Navigating the Role of an Embedded Security Engineer - Part 1</title><link href="https://solaissecurity.com/blog/seceng-part-1" rel="alternate" type="text/html" title="Navigating the Role of an Embedded Security Engineer - Part 1" /><published>2025-08-17T00:00:00+00:00</published><updated>2025-08-17T00:00:00+00:00</updated><id>https://solaissecurity.com/blog/seceng-part-1</id><content type="html" xml:base="https://solaissecurity.com/blog/seceng-part-1"><![CDATA[<p>This is the first part in a series of posts where I plan to share my experience working in security and in particular as an embedded security engineer. With these posts I hope to document the lessons I’ve learned over the years and to provide guidance which I wish I had starting out on this journey.</p>
+
+<h2 id="audience">Audience:</h2>
+
+<ul>
+  <li>
+    <p>Engineer thinking of taking up this role</p>
+  </li>
+  <li>
+    <p>Engineering manager hiring for a similar role</p>
+  </li>
+  <li>
+    <p>Anyone else that is curious</p>
+  </li>
+</ul>
+
+<h1 id="background">Background</h1>
+
+<p>For the past 3 and a half years, I have worked as an embedded security engineer within the Platform tribe at Wise (formerly Transferwise), firstly as an embedded engineer with 1 or 2 teams and then working wider across the tribe as a staff engineer. During this time, I’ve witnessed significant growth within Platform, including doubling in size and the company’s transition to a public entity. Wise is a fintech focusing on international money transfers which comes with the challenges of being heavily regulated and balancing large risks with development velocity of a scaleup company.</p>
+
+<p>Prior to Wise, my experience was in a small Security Operations team performing a mix between analyst/ IR work and security engineering. When I joined Wise, I was the first embedded security engineer they hired in Platform and I was based in the team who built and maintained our estate of kubernetes clusters.</p>
+
+<p>The combination of it being a new role in the company and being in a team full of experienced senior engineers, it took me a long time to feel like I found my place in the role. This series of posts aims to aid engineers embarking on similar journeys but should also be useful for managers planning to hire someone into this role.</p>
+
+<p>It’s worth noting that most of my experience has been in companies where security is a high business priority, which obviously makes some of the job easier but certainly doesn’t mean security is the only priority. Being embedded in a team where security wasn’t a priority certainly would come with a lot more challenges.</p>
+
+<h1 id="part-1---working-with-people">Part 1 - Working with People</h1>
+
+<p>In this article I’ll cover some of the soft skills aspects of the role and what I’ve learnt. Wise likely has quite a different culture to other companies however the points below are generally how I work anyway. Prioritising pragmatism and showing empathy for other people has gotten me a long way over the years.</p>
+
+<h1 id="imposter-syndrome">Imposter Syndrome</h1>
+
+<p>Being hired as a specialist outside a team’s core domain, you may feel intimidated by the depth of domain knowledge shown by your peers. It’s important to recognise that such comprehensive expertise isn’t expected of you (at least it shouldn’t be in my opinion). However, recognising this alone may not help if you aren’t aligned with your Team Lead and the other engineers on the team. Being transparent with them on how you see your role, should help to ensure you are aligned and identify any mismatched expectations. In my case the specialty is security but I feel like there would be a lot of overlap for any specialty.</p>
+
+<p>What helped me and let me manage these feelings was realising I wasn’t hired to just be another engineer in the team and do the same work. As a specialist, you are there to bring an outside perspective and expertise. Lean in on this and identify where you can have a multiplying effect by focusing the expertise of the other engineers on the right problems.</p>
+
+<p>Even as the “security” person in the team, you are not there to make all the security decisions, know how to secure every technology or do all the security related tasks. Your outside perspective when viewing a problem is valuable and how you can translate that to impact within the team is by driving the conversation on security and by asking the right questions to get the engineers that know the domain best to help you identify gaps. That isn’t to say you won’t do engineering work, you just need to be selective on what engineering work delivers most value - more on this later.</p>
+
+<h1 id="communication">Communication</h1>
+
+<p>In my experience, effective communication is essential for delivering value in this role. The team you’re a part of likely juggles conflicting priorities beyond security, and Security teams might have bigger fires outside of your immediate focus. While communication is mentioned throughout this article, here are some sample strategies I’ve found helpful.</p>
+
+<p>This section is focused on getting feedback from fellow engineers, with other audiences you should alway consider adapting your communication methods. For example,  with senior leadership or audit functions, suggesting partially formed solutions may have negative consequences if they just accept the proposed solution.</p>
+
+<h2 id="gathering-input">Gathering Input</h2>
+
+<p>Something I struggled with at times, was getting ideas out of other engineers on how to solve a problem. There can be many reasons for this but I learned not to take it personally as when I’m in their shoes, someone asking for ideas on a solution can have quite a high cognitive load especially when you have other priorities.</p>
+
+<p>To facilitate easier collaboration, a good starting point is to propose your own solution, acknowledging its potential flaws. I’ve found with engineers, if they don’t like some proposed change that will affect them, they are very quick to highlight concerns. Once you know where improvement is needed you can iterate and suggest improvements or ask specific questions on how they would improve the part they gave feedback on.</p>
+
+<h2 id="sharing-opinions">Sharing Opinions</h2>
+
+<p>Another area where I’ve seen people struggle is around sharing their opinion during group discussions in person or on video calls. Depending on your personality, you may struggle with sharing your opinion in these settings vs with async communication like a document. I’m not going to go into reasons for this but I will share some methods I find useful in group discussions.</p>
+
+<h3 id="focusing-on-the-problem">Focusing on the problem:</h3>
+
+<p>A common issue with group discussions, especially with engineers, is a tendency to focus on solutionising during discussions before there is clear alignment on the problem.</p>
+
+<p>Group discussions are expensive and when unstructured, can be really unproductive. In my experience when there isn’t a clear solution being discussed or the conversation is going in circles, bring the focus back to the problem. When aligned on the problem, suggest taking the solutionising offline to a document or any other format.</p>
+
+<p>This is not only more productive but also gives you an opportunity to do more research and have time to think about solutions rather than doing it on the spot.</p>
+
+<h3 id="fear-of-being-wrong">Fear of being wrong:</h3>
+
+<p>During group discussions the loudest voices who aren’t afraid to be wrong can dominate. This can be dangerous if decisions are based on that discussion. How I get comfortable with sharing opinions even when not confident in them, is by caveating what I say with context if it needs to be validated offline. This can make the difference between coming across arrogant vs just contributing to the discussion. There are many ways this could be phrased but ultimately you want to communicate that you are sharing the information you have that’s relevant to the discussion but if a decision is being made based on that some validation should be done offline.</p>
+
+<h2 id="being-data-driven">Being Data Driven</h2>
+
+<p>I’m not going to go into all the details here but a key aspect to efficiently driving conversations is the use of data. Without data discussions can go in circles theorising about how big a problem is or what impact a proposed solution might have on a problem. However, getting data to facilitate a discussion may not always be easy. Whenever available it’s worth using as having data to backup your comments makes for a much more convincing argument.</p>
+
+<p>When presenting data it can be easy to over use it and distract from the primary topic. The process I always follow is:</p>
+
+<p>Firstly identify what outcomes you want to achieve
+Identify who your audience is and what conversations you need to drive to achieve those outcomes
+Plan reporting around those conversations and audience
+If any data or chart is distracting from the primary conversation, move it to a different view</p>
+
+<p>Key consideration with using data is to not try to build the same view for all audiences.</p>
+
+<p>For some topics like configuration issues and vulnerability management, data is much easier to collect while for others like network traffic metadata, public historical breach patterns, risk likelihood and impact it might not be worth the time investment during the planning phase of a project to collect it. For these harder data sources, prioritising based on theory may be more effective but consider investing in reporting to track progress over the longer term.</p>
+
+<p>Related to data, a common question I get asked is about trying to put monetary loss value to a risk. With security risk, there are usually so many variants of how the risk could materialise that any value is a wild guess. For example, the same risk might materialise weekly with insignificant impact and once every 5 years with catastrophic impact. How you deal with this depends on your company’s risk process but I wanted to point it out as a common challenge.</p>
+
+<h1 id="working-with-security-conscious-engineers">Working with Security Conscious Engineers</h1>
+
+<p>Based on stereotypes and past experience working in more siloed Security teams, it was somewhat surprising at the start to find engineers pointing out and fixing security issues without anyone else telling them. Obviously this is how it should be, as security is everyone’s responsibility, but as you’ll find out being embedded within an Engineering team, it’s not always that simple.</p>
+
+<p>I got lucky, in that some of the senior engineers I worked with were at times, more security conscious than I was. This is a great learning opportunity and can make your life easier but certainly doesn’t come without its own set of challenges.</p>
+
+<p>Working with these engineers over time, I realised that for these engineers where I can bring most value is by helping them rationalise the risk and how to prioritise the issues. For the engineers, as they know the systems so well it can be easy to go down a rabbit hole and identify really niche hard to exploit weaknesses. Security isn’t binary where it is either secure or not. If you want to deliver business value outside fixing issues, you need to have a risk appetite and balance that with the need to invest in non-security projects.</p>
+
+<p>If you’ve never had to help teams balance security with everything else they are responsible for, this could be a challenge for you and take some time to understand how the business prioritisation works. Security is just one prioritisation factor that a team needs to consider. You will also need to take into account service availability, cost, growth opportunities, etc..</p>
+
+<p>This also works in reverse though. When you are suggesting a security improvement, whether it be a process or configuration change, generally all engineers will really question the value of the change in the context of the team’s priorities. The upside is, if you can convince them, they can be incredibly committed and supportive to solving that problem.</p>
+
+<p>When working in standalone Security teams, it’s easier to follow best practice and not really question what is behind that guidance. Having to debate with engineers on the true value of a change will really test your knowledge and you have to be willing to admit some best practice/idea you believed in might not add much value. Wise has a core value of “customer &gt; team &gt; ego” and it’s in these situations where you really need to put ego aside.</p>
+
+<h1 id="building-bridges">Building Bridges</h1>
+
+<p>An important part of being an embedded security engineer is building relationships/ bridges between the Security teams and your team. This is valuable so that you and the teams you work with build up context on other parts of the business. Context is key to facilitating effective cross team collaboration as it allows you to view a problem from someone else’s perspective.</p>
+
+<p>NB: When working across multiple teams, it’s critical to avoid becoming the messenger between those teams. You need to try to improve collaboration without them becoming dependent on you.</p>
+
+<h2 id="building-context-and-trust">Building Context and Trust</h2>
+
+<p>Embedded roles may lack the support network of peers with similar priorities and backgrounds. Therefore, maintaining close ties with the relevant Security teams is crucial. Depending on the project, this could involve collaborating with Security Operations, Application Security, Governance, or Compliance teams. If your background aligns with one of these domains, reaching out may feel less daunting vs being in these teams and having to reach out to unfamiliar business functions. The benefit of being embedded, especially if you’re not the most outgoing person, is that building those relationships with the teams/engineers outside your normal area of expertise comes naturally as you are part of their team. As you spend time with these team’s, you’ll build up knowledge on their priorities and challenges. This contextual knowledge is key to driving better collaboration.</p>
+
+<p>Building context on a team can be done relatively quickly, trust on the other hand takes time. On building trust and improving collaboration I’d recommend the book “The Software Engineer’s Guidebook” by Gergely Orosz. It has a section on collaboration for Staff+ engineers which I found strongly overlaps with the skill required as embedded security engineer and would be a great resource for anyone in that role.</p>
+
+<h2 id="facilitating-collaboration">Facilitating Collaboration</h2>
+
+<p>When you have a good understanding of multiple teams and have built trust with their engineers, you are in the best position to bring those teams closer. This will happen most naturally when one side needs something from the other.</p>
+
+<p>Use these opportunities to allow the teams to collaborate, rather than throwing requirements over the wall hoping they get done. At times, you can feel like a translator but it’s worth it in the short term to improve collaboration. As you’ll have context on both teams, you can help by identifying any miscommunications or conflicting priorities. Helping the team past these should allow the teams to build trust and respect for each other’s challenges so that in future your “translation” isn’t required.</p>
+
+<p>An example of this which I’ve seen is when a Security team will make a request for a solution without much context on the current engineering challenges/priorities. The engineering team doesn’t have context on why the request is important and think the suggested solution doesn’t make sense technically for their system.</p>
+
+<p>This can result in the Engineering teams disengaging, saying the Security team doesn’t know what they are talking about and Security teams saying the engineering teams don’t care about security.</p>
+
+<p>As the person with context on both sides, you will need to help both sides step back from the solution, understand the problem and then collaborate on a solution.</p>
+
+<p>This breakdown in collaboration isn’t specific to security but can happen with a request from any team to another team where the request isn’t communicated with empathy for the other team.</p>
+
+<h1 id="closing-comment">Closing Comment</h1>
+
+<p>This post is based on my experience across my career so far, however it should be applicable regardless if you’re an embedded security engineer or a security engineer at all. Building strong cross team collaboration skills is key to delivering value outside your team scope and delivering projects that have cross team dependencies. Also as a security engineer in a Security team everything above should be applicable in reverse where you have to build relationships with the other Engineering teams, doing this is how I delivered the most value in my previous company and what helped get my current role.</p>
+
+<p>The next post will focus on lessons I learned or wish I learned getting stuck into the technical work when I started out as an embedded security engineer.</p>]]></content><author><name></name></author><category term="post" /><category term="security-engineering" /><category term="ways-of-working" /><category term="explanation" /><summary type="html"><![CDATA[A deep dive into the role of an embedded security engineer, sharing lessons learned, practical advice, and strategies for effective collaboration and impact.]]></summary></entry><entry><title type="html">Navigating the Role of an Embedded Security Engineer - Part 2 - Getting Started</title><link href="https://solaissecurity.com/blog/seceng-part-2" rel="alternate" type="text/html" title="Navigating the Role of an Embedded Security Engineer - Part 2 - Getting Started" /><published>2025-08-17T00:00:00+00:00</published><updated>2025-08-17T00:00:00+00:00</updated><id>https://solaissecurity.com/blog/seceng-part-2</id><content type="html" xml:base="https://solaissecurity.com/blog/seceng-part-2"><![CDATA[<p>In the first blog post of this series, I outlined some of my thoughts on collaboration and working with people. I chose that topic first as I believe it is one of the most fundamental skills to succeed in any role but especially as an Embedded Security Engineer. This blog post is going to focus on getting started with delivering work for your team and how to deal with pressures of a new role.</p>
+
+<p>It is easy to get overwhelmed in security and feel like everything is a priority. This can lead to great engineers not delivering on their potential and getting lost juggling too many parallel streams of work. In this post I’m going to share some of my learnings on dealing with this, which I’m hoping can help someone make a start in an embedded role without becoming overwhelmed. I chose this topic second as getting a good start to a new role sets up the foundations which your future impact is built off.</p>
+
+<h1 id="part-2---getting-started">Part 2 - Getting Started</h1>
+<hr />
+<h1 id="1-onboarding">1. Onboarding</h1>
+
+<p>As mentioned in the first blog post, gaining a deeper understanding of your team and their systems is a key benefit of this role. The best way to achieve this is by getting hands-on experience with their systems. While this approach may not be feasible for everyone or in every situation, in my opinion, it’s the most effective way to build the foundational technical knowledge necessary for future work.</p>
+
+<p>Assuming you won’t be as experienced with the team’s primary technologies as the other engineers, a good starting point is to follow any onboarding exercises designed for more junior engineers. During this process, take notes on potential security improvements or gaps, but avoid making immediate fixes unless they are minor. I would recommend that you focus first on building your knowledge and observing how the systems function.</p>
+
+<p>Personally I would prefer getting hands on, but if this isn’t an option, consider alternatives like training, shadowing an engineer, e.g. while they perform common tasks, or simply asking them to explain how they work day to day and how the team’s systems work. Early in my time in this role, I prioritised getting hands on (plus a mix of the other learning methods) but later I had to find a balance between delivering on security objectives and getting enough context through general engineering work.</p>
+
+<h1 id="2-focusing-on-your-speciality">2. Focusing on your Speciality</h1>
+
+<p>After some onboarding time, you will need to start focusing on delivering improvements in security. When it comes to knowing what to work on you generally have two options, take the initiative to proactively identify projects or wait for the direction to be outlined by your lead. When it comes to how I plan my work, I have a strong preference towards being proactive, however that doesn’t mean I work on whatever I want. When taking the initiative you need to know how to both communicate with your lead and team. The final piece of that puzzle is knowing how to effectively prioritise. Within the field of Security, I believe this is a common struggle for people as we are often choosing between equally important risks. Below I’ll share some guidance on prioritisation based on my experiences.</p>
+
+<h2 id="21-prioritisation">2.1 Prioritisation</h2>
+
+<p>There are generally two ways I view priorities. Firstly, you and your team’s initiatives relative to each other, secondly, those initiatives prioritised within the wider business context. The second point on the business context is more important as delivering business value is ultimately the goal but I mentioned it second as it takes time to build up the knowledge &amp; support structure to do this. Assuming you have a list of initiatives to work on, the process of prioritising them against each other generally follows standard patterns in security and risk management, e.g. comparing likelihood and impact. As I mentioned in my first blog post, quantifying this can be extremely challenging but don’t be afraid to just go with your gut instinct. Not making a decision and trying to do both will likely do more harm than choosing the wrong priority. When following my instincts, at a minimum I try to describe my internal rationale for why I’m leaning one way or another. Even if this is vague it’s better than nothing, as you can challenge and iterate on it. When following instincts, you also need to be willing to admit when you are wrong and adapt.</p>
+
+<p>Building up enough business context to know where your work fits in the wider business priorities takes time and isn’t always possible to do on your own. This is especially true when you are new in the role. Prioritising within the wider business context is where you should lean on your lead, team and product managers for input. They might know of some business context which will change up your priority order. Examples could be, cost saving directives, regulatory pressure, strategic initiatives which need support.</p>
+
+<p>Even if your priorities are out of your hands, having an internal prioritisation model will help you understand the business context and refine your skills. Comparing your internal prioritisation vs final prioritisation will give you a feedback loop on your model and allow you to iteratively improve. Improving this over time will help you build trust and eventually gain more independence and provide value to your team’s planning.</p>
+
+<p>Something not covered here is balancing long term strategic initiatives vs short term fixes which I’ll cover in a later post when talking about one-way door decisions. Tackling these strategic initiatives should be avoided when getting started which is why I’ve left it out.</p>
+
+<h2 id="22-fire-fighting">2.2 Fire Fighting</h2>
+
+<p>I mentioned earlier how in security it can be easy to get overwhelmed by all the issues that need to be fixed. We are trained to see a threat in every misconfiguration and vulnerability but not all vulnerabilities are equal and not every threat can be fully mitigated. The following statement is important to remember when trying to prioritise what to fix:</p>
+
+<p>You can’t solve every problem at once, and trying to do so will result in nothing getting fixed.</p>
+
+<p>Just to be clear, if you find some obvious fires burning that will have a material impact on the company in the short term, you need to prioritise and escalate them. However, it’s important to remember you aren’t alone. There was a security team there before you (hopefully) and the company needs to deal with incidents when you are unavailable. Becoming a one-stop shop for all things security creates a single point of failure, which is in the business’s best interest to avoid.</p>
+
+<p>As mentioned above, findings like an existing breach, publicly exposed data sets, exploitable public vulnerabilities, etc., are impossible to ignore and difficult to prioritise one vs the other. However, more systemic issues which can’t be directly exploited may need more pragmatic handling. Something I’ve always struggled to rationalise, is the tendency to treat a security issue as the highest priority when found even though it has been there for months or years. Sometimes a high priority is completely justified but other times creating a new high priority can distract from delivering existing impactful improvements. In this situation, there can be a fine balance between being pragmatic vs becoming jaded and not showing the appropriate level of urgency. When you are new to a company you are more likely to place excessive urgency on an issue, however this new urgency can be valuable. Bringing urgency to an existing issue adds a fresh perspective to people who may have been dealing with the same issue for too long. It’s important, though, when driving the level of urgency, to be open to hearing reasons why an issue can’t be fixed or why it’s a lower priority than you might think.</p>
+
+<p>Every situation is different and needs to be evaluated on its own. However, when trying to figure out the urgency of some remediation action, try to think about the impact of a delay to the business:</p>
+
+<p>What is the threat and worst case impact?
+What is the probability?</p>
+
+<p>A common question you might get asked when dealing with urgent incidents is, can the fix wait until tomorrow or after the weekend? Being asked this question doesn’t mean you have to make the final call as you might not be comfortable/authorised to make it. What you can do is provide information and your perspective so that, if there are more senior people available, they can make an informed decision. When doing this, outline the facts that you know, what unknowns there are and what your informed choice would be, with a caveat of what risks that includes. This allows you to contribute and ensure an informed decision is made even if you don’t make it.</p>
+
+<h2 id="23-using-past-experience">2.3 Using Past Experience</h2>
+
+<p>Unless this is your first role, everyone has worked in other companies and seen how problems can be solved in different ways. When you join a new company it’s easy just to compare your new and old company to see what gaps there are. However, the approach you take to using/sharing this information and experience is important to building trust. In my experience, someone saying we did it this way in my previous company may come off as someone who isn’t adaptable or didn’t fully understand the reasons behind choices. Every company has a different journey, working culture, risk appetite and depending on current business context varying priorities. It’s important to understand why historical decisions were made before challenging them.</p>
+
+<p>Focus on the problems at hand and why they need to be solved in the context of your current company. When it comes to outlining potential solutions, this is where your experience becomes valuable. Based on the solutions you have seen elsewhere you can propose potential solutions. With these solutions, highlight any challenges you faced/observed with that choice that may not be obvious unless you’ve experience implementing it. The key point here is what you saw elsewhere should always only be a potential solution rather than the right solution by default.</p>
+
+<h1 id="3-starting-small">3 Starting Small</h1>
+
+<p>Assuming there are no fires burning when you join, starting small is key to long-term success in this role. I mentioned in my first blog post the concept of building trust capital. To do this, you need to deliver impact and finish projects. In my experience, some of the most important and impactful work for improving a business’s security requires cultural or cross team process/technology changes. However, these large scale changes can take years to deliver and are the types of changes which require leveraging trust and goodwill which you need to build up.</p>
+
+<p>Starting with small scoped changes will allow you to not only build trust but also get more of an understanding on how teams work and how to approach driving changes in the team and wider. After reflecting on my experience, below is some general advice which should help regardless of the starter projects you choose: (This advice is specific to when starting out in the role)</p>
+
+<p>Ensure they can be delivered anywhere between a few weeks to max. 1 quarter. 
+When just starting and if possible, avoid projects which need extensive cross-team collaboration. This can help you to deliver early on in your journey before you have extensive connections and business knowledge. 
+Avoid sharing high level principles like “least privilege” as remediation advice. Any competent engineer could google security best practice and find general principles. To deliver value as an SME, you need to translate those principles to actionable insights specific to the system you are working with. 
+To counterbalance the previous point on being too vague, try to avoid being overly prescriptive on the solution. Some solutions are obvious and don’t need to be over thought, e.g if it’s just changing a best practice setting in an existing system. However, when a problem could be solved in multiple ways, focus on making the problem well understood. 
+Before you try to teach other engineers to do something on their own, e.g. system hardening, do it yourself first to experience any pain/ challenges they may face. This will allow you to mentor your peers more effectively as you can have empathy and they know you have shared experience of their challenges.</p>
+
+<p>A final point on this topic is to focus on your team’s most critical system and work down the list. At some point either when you get to non-critical systems where the return on your time investment is diminishing or when you feel you’ve built up enough trust capital to take on bigger problems, you should start looking into any longer term strategic changes you could make.</p>
+
+<p>Given this blog is specific to an Embedded Security Engineer, I want to give a few more specific suggestions of where to start. These suggestions are based on my experience embedded with Platform teams so treat them as a source of inspiration:</p>
+
+<p>Review system configuration/hardening
+Perform access reviews and secret handling practices
+Improving existing security tooling/processes</p>
+
+<p>The following three subsections are only relevant if you want more specific insights on my suggestions for these project topics, otherwise you can skip them.</p>
+
+<h2 id="31-configuration-reviews">3.1 Configuration Reviews</h2>
+
+<p>Whatever technology the team maintains, there will likely be some best practice guidance on how to harden it. This can be done through tooling, following an available guide or where there is nothing available by applying your experience and general best practice to the system.</p>
+
+<p>Configuration reviews/system hardening is a good starting point as an embedded engineer as it has a finite scope and should be something you can either lead or contribute to remediation. This builds off what I mentioned in the onboarding section about being hands on but delivers even more value for your time investment as you are delivering improvements to security which is what you are there for.</p>
+
+<p>For the scope of hardening work to be small, your team would need to primarily own the system you want to review. Doing any work on a system owned by multiple teams will increase the delivery time massively. I’m not going to go into detail on this but simply put, more people, especially cross-team, means more admin work and more people to convince before a change is allowed.</p>
+
+<p>Something to remember with following standards or best practice guides: If you are asking other people to follow your recommendation, it will build much more trust if you understand the intent behind a requirement vs just using “the standard says” as the motivation for your request. This takes more time but it also means when you come across a system which doesn’t have a guide you’ll know what to look out for.</p>
+
+<h2 id="32-access-reviews">3.2 Access Reviews</h2>
+
+<p>A lot of the same advice for scope of configuration reviews would be applicable when performing access reviews, but remember to keep this somewhat simple and just try to reduce risk without trying to revolutionise the tooling or ways of working. The goal when starting out is to build experience while delivering impact.</p>
+
+<p>When embedded or working with Platform/Infrastructure teams, the blast radius and impact from insider threats is massively increased. Therefore, for these teams with privileged access to critical systems, quick wins can be found by:</p>
+
+<p>Reducing permissions that aren’t used.
+Reducing the attack surface, e.g., removing people with privileged access that don’t need it.
+Adding preventative/monitoring controls on the worst-case abuses of that privileged access.</p>
+
+<p>Something that is easy to overlook when trying to reduce the risk from privileged access is the secrets management for the system you are reviewing. There is no value in reducing access to a system via one authentication path if the same engineers who lost some access can use break-glass methods or privileged service accounts to authenticate to the system with the same or more privileges as before.</p>
+
+<p>The topic of privileged access management could be a whole blog post on its own but below are a few pointers to help when working on this:</p>
+
+<p>You have to balance engineer productivity with security - unproductive engineers impose a high cost to the business too. 
+Making your team’s day to day harder without their buy-in will make you lose trust and the goodwill capital you’ve built up.
+Before removing permissions, work with the team on what tooling/automation is needed to allow them to still do their job efficiently. 
+If you don’t think about usability and productivity, engineers will find another way to do their job and bypass your controls (shadow IT).</p>
+
+<h2 id="33-improving-tooling--processes">3.3 Improving Tooling &amp; Processes</h2>
+
+<p>Any Engineering team is likely to have existing security related processes and there will also likely be tools/processes owned by the Security team which they have to follow. This makes improving internal team tooling and processes a great starting project. The objective here is not to introduce something new but to identify frustrations with an existing tool/process and iterate on it to make them more effective and less toilsome.</p>
+
+<p>Some more specific improvement examples:</p>
+
+<p>Improving reporting
+Identifying unnecessary steps in a process and removing them.
+Building guardrails into CI/CD pipelines.</p>
+
+<p>With processes managed by other teams, this is also a great opportunity to start building up your network and, in my experience, if you can make a team’s life easier by improving something that is outside their control it will build a lot of trust.</p>
+
+<p>A common example of this is vulnerability management (tooling and processes). As you are embedded you should be able to view and experience the tooling from the perspective of the engineers vs just from the Security team. Using this and your security knowledge can allow you to suggest/make improvements to the process which would drive better engagement and enable teams to do the right thing vs frustrating them.</p>
+
+<h1 id="4-definition-of-done---lessons-learned">4 Definition of Done - Lessons Learned</h1>
+
+<p>In an embedded role, part of the difference from my perspective was the emphasis on delivering value for the team vs just delivering recommendations. The two aren’t mutually exclusive for example, delivering a threat model which shows where the system can be improved delivers value if the team on its own doesn’t have the time or expertise to deliver it. However, adding even more value would be delivering the threat model and then contributing on some of the remediation work.</p>
+
+<p>When setting out on a project, two lessons I learnt is to one, be explicit in defining the scope and what done looks like, and two, define how you will measure the difference the project has made. That measurement doesn’t have to be a fancy dashboard that is populated automatically. It can be really basic like a manual measurement, for example a count of the number of people with admin rights. These two steps are critical to know when you have done enough in one specific project which allows you to move on without keeping too many parallel projects in progress.</p>
+
+<p>With experience I learnt that there is another step after delivering remediation work to mitigate an issue. That step is being able to have confidence that your remediation work is still effective in 6 months, a year and that the same issue hasn’t popped up somewhere else in the company’s infrastructure. If you can deliver this on top of remediation work you will maximise your impact. Having reporting or another process to show the issue hasn’t come back adds value in a few ways:</p>
+
+<p>Allows you to focus on new issues without having to fix the same issues twice or constantly check if what you did is still working. 
+Allows you to demonstrate if audited that a control is in place and working. 
+Allows you to quickly detect if a mitigation is reverted.</p>
+
+<p>While this last step is important and should be the long term objective with any critical controls, it shouldn’t stop you from just delivering the remediation work. If you only have resources to deliver the remediation but nothing more, it’s still reducing the risk to the business.</p>
+
+<h1 id="5-conclusion">5 Conclusion</h1>
+
+<p>This blog post is a reflection of my experience starting out in this role and in other roles. The most important points to remember are don’t try to fix everything at once, start small and focus on measurable impact and don’t jump into trying to change architecture or culture straight away, even if you know this is needed eventually.</p>]]></content><author><name></name></author><category term="post" /><category term="security-engineering" /><category term="ways-of-working" /><category term="explanation" /><summary type="html"><![CDATA[This post explores strategies for Embedded Security Engineers to effectively onboard, prioritize tasks, and deliver impactful results while navigating the challenges of a new role. Learn how to start small, build trust, and balance immediate fixes with long-term improvements.]]></summary></entry></feed>
